@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8" />
+  <title>Rhythm Trainer with h-Subdivision Typing</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f9f9f9;
+      text-align: center;
+      margin: 20px;
+    }
+    h1 {
+      margin-bottom: 10px;
+    }
+    #baseNote {
+      font-size: 80px;
+      margin-bottom: 10px;
+    }
+    #notes {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 12px;
+      max-width: 90vw;
+      margin: 0 auto 15px;
+    }
+    .note {
+      font-size: 40px;
+      user-select: none;
+    }
+    .answer {
+      width: 80px;
+      padding: 6px;
+      font-size: 20px;
+      text-align: center;
+      border-radius: 4px;
+      border: 1.5px solid #ccc;
+      transition: border-color 0.3s;
+    }
+    .answer:focus {
+      border-color: #0b76ef;
+      outline: none;
+    }
+    .correct {
+      color: black;
+      border-color: #2d8f2d !important;
+    }
+    .wrong {
+      color: red;
+      border-color: red !important;
+    }
+    .correctAnswer {
+      font-size: 14px;
+      margin-top: 6px;
+      user-select: none;
+    }
+    #controls {
+      margin-bottom: 15px;
+    }
+    #timer {
+      font-size: 24px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      user-select: none;
+    }
+    #result, #score {
+      font-size: 18px;
+      margin-top: 8px;
+      user-select: none;
+    }
+    button {
+      background-color: #0b76ef;
+      color: white;
+      border: none;
+      padding: 10px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 0 10px;
+      font-size: 16px;
+      user-select: none;
+    }
+    button:hover {
+      background-color: #095aba;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🎵 Rhythm Trainer</h1>
+  <div id="baseNote" title="Base note (quarter = 1 beat)"></div>
+  <div id="timer">Timer: 0.00 s</div>
+  <div id="notes"></div>
+
+  <div id="controls">
+    <button id="startBtn">Start New (N)</button>
+    <button id="submitBtn">Submit (Enter)</button>
+  </div>
+
+  <div id="result"></div>
+  <div id="score"></div>
+
+  <script>
+    const REGULAR_NOTES = [
+      { sym: '𝅝', dur: 4 },
+      { sym: '𝅗𝅥', dur: 2 },
+      { sym: '𝅘𝅥', dur: 1 },
+      { sym: '𝅘𝅥𝅮', dur: 0.5 },
+      { sym: '𝅘𝅥𝅯', dur: 0.25 },
+      { sym: '𝅘𝅥𝅰', dur: 0.125 },
+      { sym: '𝅘𝅥𝅱', dur: 0.0625 }
+    ];
+
+    const DOTTED_NOTES = [
+      { sym: '𝅝•', dur: 6 },
+      { sym: '𝅗𝅥•', dur: 3 },
+      { sym: '𝅘𝅥•', dur: 1.5 },
+      { sym: '𝅘𝅥𝅮•', dur: 0.75 },
+      { sym: '𝅘𝅥𝅯•', dur: 0.375 }
+    ];
+
+    const BASE_NOTES = [
+      { sym: '𝅘𝅥', dur: 1 },
+      { sym: '𝅘𝅥𝅮', dur: 0.5 },
+      { sym: '𝅘𝅥𝅯', dur: 0.25 },
+      { sym: '𝅘𝅥𝅰', dur: 0.125 },
+      { sym: '𝅘𝅥𝅱', dur: 0.0625 }
+    ];
+
+    const ALLOWED_BASE_FRACTIONS = [
+      1.5, 1.25, 1.125,
+      1, 0.75, 0.5, 0.375, 0.25, 0.125, 0.0625
+    ];
+
+    const COUNT = 20;
+    let baseNote = null;
+    let questionNotes = [];
+    let startTime = null;
+    let timerInterval = null;
+    let highScore = Number(localStorage.getItem('rhythmHighScore') || 0);
+    let bestTime = Number(localStorage.getItem('rhythmBestTime') || 0);
+
+    const baseNoteDiv = document.getElementById('baseNote');
+    const notesDiv = document.getElementById('notes');
+    const timerDiv = document.getElementById('timer');
+    const resultDiv = document.getElementById('result');
+    const scoreDiv = document.getElementById('score');
+    const startBtn = document.getElementById('startBtn');
+    const submitBtn = document.getElementById('submitBtn');
+
+    // ------------------------ UPDATED H-SYSTEM ------------------------
+    // smallestUnit is no longer needed as the base note duration serves as the unit (1)
+
+    // Step 1: convert duration -> h pattern (Duration relative to the base note)
+    function durationToH(noteDuration) {
+      // Calculate the ratio of the note's duration to the base note's duration
+      if (!baseNote) return "";
+      
+      const ratio = noteDuration / baseNote.dur;
+      // Use nearestAllowedAnswer's result for perfect match
+      const count = nearestAllowedAnswer(ratio);
+
+      // We only use h-system for integer or simple half/quarter ratios of the base note.
+      // To generate a clean 'h' pattern for fractions, we find the smallest denominator (2, 4, 8) 
+      // and scale the numerator. E.g., 1.5 = 3/2. We'll use 2 as the subdivision.
+      const subDivisor = Math.pow(2, Math.ceil(Math.log2(1/count))); // E.g., for 0.25, subDivisor is 4
+      
+      // Check if it's a simple binary fraction (like 1, 0.5, 1.5, 2, 0.25, etc.)
+      if (Math.abs(count - Math.round(count)) < 0.0001) {
+        // Integer answers (e.g., 4) -> hhhh
+        return Array(Math.round(count)).fill("h").join(" ");
+      } else if (Math.abs(count * 2 - Math.round(count * 2)) < 0.0001) {
+        // Half-note answers (e.g., 1.5 = 3/2) -> hhh (where 'h' is 1/2 of base)
+        return Array(Math.round(count * 2)).fill("h").join(" ");
+      } else if (Math.abs(count * 4 - Math.round(count * 4)) < 0.0001) {
+        // Quarter-note answers (e.g., 1.25 = 5/4) -> hhhhh (where 'h' is 1/4 of base)
+        return Array(Math.round(count * 4)).fill("h").join(" ");
+      } else {
+        return "N/A";
+      }
+    }
+
+    // Step 2: parse "hhh hhh" -> duration (The result is the numerical ratio itself)
+    function parseHPattern(str) {
+      str = str.trim();
+      if (!str) return NaN;
+      if (!/^[h\s]+$/i.test(str)) return NaN;
+      
+      // Count the number of 'h's
+      let hCount = (str.match(/h/gi) || []).length;
+
+      // Find the smallest possible denominator that yields one of the ALLOWED_BASE_FRACTIONS
+      // This ensures 'h' is always interpreted as the smallest intended subdivision (1/4, 1/2, or 1)
+      // Since the question is based on integer answers relative to the base, we first check for an exact integer match.
+      if (ALLOWED_BASE_FRACTIONS.includes(hCount)) return hCount;
+
+      // Check for half (e.g., hCount=3 means 3/2 = 1.5)
+      if (ALLOWED_BASE_FRACTIONS.includes(hCount / 2)) return hCount / 2;
+
+      // Check for quarter (e.g., hCount=5 means 5/4 = 1.25)
+      if (ALLOWED_BASE_FRACTIONS.includes(hCount / 4)) return hCount / 4;
+
+      // Fallback: Assume 'h' is 1/4 of the base, as it covers the most common fractions (1, 0.5, 0.25, 0.75, 1.25, 1.5, 1.75, 2, etc.)
+      return hCount / 4; 
+    }
+
+    // Step 3: override parseAnswer to handle H-typing
+    function parseAnswer(inputStr) {
+      inputStr = inputStr.trim();
+      // first check H-system
+      const hVal = parseHPattern(inputStr);
+      
+      // If hVal is a reasonable number (not NaN, and not 0 unless 0 is the intended answer)
+      if (!isNaN(hVal) && (hVal !== 0 || inputStr.toLowerCase().includes('h'))) return hVal;
+      
+      // then fraction
+      if (inputStr.includes('/')) {
+        const parts = inputStr.split('/');
+        if (parts.length === 2) {
+          const numerator = parseFloat(parts[0]);
+          const denominator = parseFloat(parts[1]);
+          if (!isNaN(numerator) && !isNaN(denominator) && denominator !== 0) {
+            return numerator / denominator;
+          }
+        }
+        return NaN;
+      }
+      // decimal
+      return parseFloat(inputStr);
+    }
+    // ------------------------ END UPDATED H-SYSTEM ------------------------
+
+    function shuffleArray(array) {
+      for(let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+
+    function pickRandomBaseNote() {
+      return BASE_NOTES[Math.floor(Math.random() * BASE_NOTES.length)];
+    }
+
+    function nearestAllowedAnswer(val) {
+      let bestDiff = Infinity;
+      let bestVal = val;
+
+      // Check for simple integer first, as many answers will be 1, 2, 4, 8, etc.
+      const roundedInt = Math.round(val);
+      if (Math.abs(val - roundedInt) < 0.0001) return roundedInt;
+
+      const maxMult = Math.ceil(val) + 2; // Check slightly above the value
+
+      for (let mult = 1; mult <= maxMult; mult++) {
+        for (const frac of ALLOWED_BASE_FRACTIONS) {
+          const candidate = mult * frac;
+          const diff = Math.abs(val - candidate);
+          if (diff < bestDiff) {
+            bestDiff = diff;
+            bestVal = candidate;
+          }
+        }
+      }
+      return bestVal;
+    }
+
+    function decimalToFraction(value, maxDenominator=64) {
+      if(value === 0) return "0";
+
+      const sign = value < 0 ? "-" : "";
+      value = Math.abs(value);
+
+      let bestNumerator = 1;
+      let bestDenominator = 1;
+      let bestError = Math.abs(value - bestNumerator / bestDenominator);
+
+      for(let denominator = 1; denominator <= maxDenominator; denominator++) {
+        let numerator = Math.round(value * denominator);
+        let error = Math.abs(value - numerator / denominator);
+        if(error < bestError) {
+          bestNumerator = numerator;
+          bestDenominator = denominator;
+          bestError = error;
+        }
+      }
+
+      function gcd(a,b) {
+        if(!b) return a;
+        return gcd(b, a % b);
+      }
+      let gcdVal = gcd(bestNumerator, bestDenominator);
+      bestNumerator /= gcdVal;
+      bestDenominator /= gcdVal;
+
+      if(bestNumerator >= bestDenominator) {
+        let whole = Math.floor(bestNumerator / bestDenominator);
+        let remainder = bestNumerator % bestDenominator;
+        if(remainder === 0) return sign + whole.toString();
+        else return sign + whole + " " + remainder + "/" + bestDenominator;
+      } else {
+        return sign + bestNumerator + "/" + bestDenominator;
+      }
+    }
+
+    function filterNotesByMaxAnswer(notes, baseDur, maxAnswer) {
+      return notes.filter(n => (n.dur / baseDur) <= maxAnswer);
+    }
+
+    function startQuiz() {
+      if(timerInterval) clearInterval(timerInterval);
+      startTime = performance.now();
+      timerDiv.textContent = "Timer: 0.00 s";
+
+      baseNote = pickRandomBaseNote();
+      baseNoteDiv.textContent = baseNote.sym;
+      baseNoteDiv.title = `Base note duration: ${baseNote.dur} beats (base note = 1 second)`;
+
+      const MAX_ANSWER = 16;
+
+      const filteredRegular = filterNotesByMaxAnswer(REGULAR_NOTES, baseNote.dur, MAX_ANSWER);
+      const filteredDotted = filterNotesByMaxAnswer(DOTTED_NOTES, baseNote.dur, MAX_ANSWER);
+
+      const safeRegular = filteredRegular.length >= (COUNT - 6) ? filteredRegular : REGULAR_NOTES;
+      const safeDotted = filteredDotted.length >= 2 ? filteredDotted : DOTTED_NOTES;
+
+      const dottedCount = 2 + Math.floor(Math.random() * 5);
+      const selectedDotted = [];
+      for(let i = 0; i < dottedCount; i++) {
+        selectedDotted.push(safeDotted[Math.floor(Math.random() * safeDotted.length)]);
+      }
+      const regularCount = COUNT - dottedCount;
+      const selectedRegular = [];
+      for(let i = 0; i < regularCount; i++) {
+        selectedRegular.push(safeRegular[Math.floor(Math.random() * safeRegular.length)]);
+      }
+
+      questionNotes = shuffleArray(selectedDotted.concat(selectedRegular));
+
+      notesDiv.innerHTML = "";
+      for(let i=0; i<COUNT; i++) {
+        const q = questionNotes[i];
+
+        const container = document.createElement('div');
+        container.style.display = 'flex';
+        container.style.flexDirection = 'column';
+        container.style.alignItems = 'center';
+
+        const noteLabel = document.createElement('div');
+        noteLabel.className = 'note';
+        noteLabel.textContent = q.sym;
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'answer';
+        input.placeholder = '';
+
+        const correctAnsDiv = document.createElement('div');
+        correctAnsDiv.className = 'correctAnswer';
+
+        container.appendChild(noteLabel);
+        container.appendChild(input);
+        container.appendChild(correctAnsDiv);
+
+        notesDiv.appendChild(container);
+      }
+
+      resultDiv.textContent = "";
+      updateScore();
+
+      timerInterval = setInterval(() => {
+        const elapsed = (performance.now() - startTime) / 1000;
+        timerDiv.textContent = `Timer: ${elapsed.toFixed(2)} s`;
+      }, 100);
+    }
+
+    function checkAnswers() {
+      if(!startTime) return;
+      if(timerInterval) clearInterval(timerInterval);
+
+      const inputs = document.querySelectorAll('.answer');
+      const containers = notesDiv.children;
+      let correct = 0;
+      const tolerance = 0.01;
+
+      inputs.forEach((input, idx) => {
+        let expectedRaw = questionNotes[idx].dur / baseNote.dur;
+        let expected = nearestAllowedAnswer(expectedRaw);
+        const val = parseAnswer(input.value);
+
+        const correctAnsDiv = containers[idx].querySelector('.correctAnswer');
+        
+        // Use the expected value for H-system generation
+        correctAnsDiv.textContent = `Answer: ${decimalToFraction(expected)} | H: ${durationToH(questionNotes[idx].dur)}`;
+
+        if (!isNaN(val) && Math.abs(val - expected) <= tolerance) {
+          input.classList.remove('wrong');
+          input.classList.add('correct');
+          correctAnsDiv.style.color = 'black';
+          correct++;
+        } else {
+          input.classList.remove('correct');
+          input.classList.add('wrong');
+          correctAnsDiv.style.color = 'red';
+        }
+      });
+
+      const elapsed = (performance.now() - startTime) / 1000;
+
+      resultDiv.textContent = `Correct: ${correct} / ${COUNT} | Total Time: ${elapsed.toFixed(2)} s`;
+
+      if(correct > highScore) {
+        highScore = correct;
+        localStorage.setItem('rhythmHighScore', highScore);
+      }
+      if(correct === COUNT && (bestTime === 0 || elapsed < bestTime)) {
+        bestTime = elapsed;
+        localStorage.setItem('rhythmBestTime', bestTime);
+      }
+
+      updateScore();
+    }
+
+    function updateScore() {
+      scoreDiv.textContent = `High Score: ${highScore} | Best Perfect Time: ${bestTime > 0 ? bestTime.toFixed(2) + ' s' : '--'}`;
+    }
+
+    document.addEventListener('keydown', e => {
+      if(e.key === 'Enter') checkAnswers();
+      else if(e.key.toLowerCase() === 'n') startQuiz();
+    });
+
+    startBtn.addEventListener('click', startQuiz);
+    submitBtn.addEventListener('click', checkAnswers);   
+
+    startQuiz();
+  </script>
+</body>
+</html>
