@@ -17,11 +17,22 @@
       font-size: 80px;
       margin-bottom: 10px;
     }
-    #notes {
-      display: grid;
-      grid-template-columns: repeat(10, 1fr);
-      gap: 12px;
-      max-width: 90vw;
+#notes {
+      /* Changed from grid to flex for better horizontal flow */
+      display: flex; 
+      flex-direction: row; 
+      
+      /* Allows items to wrap onto the next line if the screen is too narrow */
+      flex-wrap: wrap; 
+      
+      /* Centers the entire block of notes horizontally */
+      justify-content: center; 
+      
+      /* Added gap for spacing between notes */
+      gap: 15px; 
+      
+      /* Ensures it uses most of the screen width */
+      max-width: 95vw; 
       margin: 0 auto 15px;
     }
     .note {
@@ -436,3 +447,4 @@
   </script>
 </body>
 </html>
+
